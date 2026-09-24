@@ -12,8 +12,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip source code
-        run: unzip -o source.zip
+      - name: Unzip and auto-fix structure
+        run: |
+          set -e
+          mkdir -p extracted
+          unzip -o source.zip -d extracted || unzip -o *.zip -d extracted
+          # Tự động tìm thư mục chứa settings.gradle
+          PROJECT_DIR=$(find extracted -name "settings.gradle" -exec dirname {} \; | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Không tìm thấy settings.gradle - kiểm tra lại file zip"
+            find extracted -type f | head -50
+            exit 1
+          fi
+          echo "Tìm thấy project tại: $PROJECT_DIR"
+          # Di chuyển toàn bộ nội dung ra thư mục gốc
+          shopt -s dotglob
+          mv "$PROJECT_DIR"/* . 2>/dev/null || true
+          echo "PROJECT_ROOT=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+
+      - name: Verify structure
+        run: |
+          echo "=== Files ở gốc ==="
+          ls -la
+          echo "=== settings.gradle ==="
+          cat settings.gradle || echo "KHÔNG CÓ settings.gradle"
+          echo "=== app/build.gradle ==="
+          cat app/build.gradle || echo "KHÔNG CÓ app/build.gradle"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -30,9 +54,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
